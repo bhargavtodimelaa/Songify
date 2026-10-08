@@ -61,6 +61,9 @@ class MusicPlayerManager(private val context: Context) {
     private val _sleepTimerMinutes = MutableStateFlow(0)
     val sleepTimerMinutes: StateFlow<Int> = _sleepTimerMinutes.asStateFlow()
 
+    private val _queueList = MutableStateFlow<List<Song>>(emptyList())
+    val queueList: StateFlow<List<Song>> = _queueList.asStateFlow()
+
     private var currentBitmap: Bitmap? = null
 
     init {
@@ -214,7 +217,87 @@ class MusicPlayerManager(private val context: Context) {
                 currentIndex = 0
             }
         }
+        _queueList.value = currentQueue.toList()
         playSong(currentQueue[currentIndex])
+    }
+
+    fun playLocalFile(song: Song, filePath: String, songs: List<Song>, startIndex: Int) {
+        if (songs.isNotEmpty() && startIndex in songs.indices) {
+            currentQueue.clear()
+            currentQueue.addAll(songs)
+            currentIndex = startIndex
+            _queueList.value = currentQueue.toList()
+        }
+
+        _playbackError.value = null
+        requestAudioAndFocus()
+
+        scope.launch(Dispatchers.IO) {
+            var bitmap: Bitmap? = null
+            try {
+                val imageUrl = song.getBestImageUrl()
+                if (!imageUrl.isNullOrEmpty()) {
+                    val url = URL(imageUrl)
+                    bitmap = BitmapFactory.decodeStream(url.openConnection().getInputStream())
+                }
+            } catch (e: Exception) {
+                // ignore
+            }
+            currentBitmap = bitmap
+            withContext(Dispatchers.Main) {
+                updateMediaSessionMetadata(song, bitmap)
+                showNotification(song, true, bitmap)
+            }
+        }
+
+        try {
+            mediaPlayer?.let { oldPlayer ->
+                try {
+                    oldPlayer.setOnErrorListener(null)
+                    oldPlayer.setOnPreparedListener(null)
+                    oldPlayer.setOnCompletionListener(null)
+                    oldPlayer.stop()
+                    oldPlayer.release()
+                } catch (ex: Exception) {
+                    // ignore
+                }
+            }
+            mediaPlayer = null
+
+            mediaPlayer = MediaPlayer().apply {
+                setWakeMode(context, PowerManager.PARTIAL_WAKE_LOCK)
+                isLooping = _isLooping.value
+                setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .build()
+                )
+                setDataSource(filePath)
+                prepareAsync()
+                setOnPreparedListener { mp ->
+                    mp.start()
+                    _currentSong.value = song
+                    _isPlaying.value = true
+                    _duration.value = mp.duration
+                    updatePlaybackState(true, mp.currentPosition.toLong())
+                    currentBitmap?.let { showNotification(song, true, it) }
+                    startProgressTicker()
+                }
+                setOnCompletionListener {
+                    if (!_isLooping.value) {
+                        playNext()
+                    }
+                }
+                setOnErrorListener { _, _, _ ->
+                    // Ignore stale errors from rapid switching
+                    true
+                }
+            }
+        } catch (e: Exception) {
+            _isPlaying.value = false
+            _playbackError.value = "Failed to play local file."
+        }
     }
 
     fun playNext() {
@@ -251,6 +334,7 @@ class MusicPlayerManager(private val context: Context) {
                     currentIndex = 0
                 }
             }
+            _queueList.value = currentQueue.toList()
         }
     }
 
@@ -296,8 +380,20 @@ class MusicPlayerManager(private val context: Context) {
         }
 
         try {
-            mediaPlayer?.release()
-            mediaPlayer = MediaPlayer().apply {
+            mediaPlayer?.let { oldPlayer ->
+                try {
+                    oldPlayer.setOnErrorListener(null)
+                    oldPlayer.setOnPreparedListener(null)
+                    oldPlayer.setOnCompletionListener(null)
+                    oldPlayer.stop()
+                    oldPlayer.release()
+                } catch (ex: Exception) {
+                    // ignore
+                }
+            }
+            mediaPlayer = null
+
+            val currentInstance = MediaPlayer().apply {
                 setWakeMode(context, PowerManager.PARTIAL_WAKE_LOCK)
                 isLooping = _isLooping.value
                 setAudioAttributes(
@@ -309,28 +405,34 @@ class MusicPlayerManager(private val context: Context) {
                 setDataSource(audioUrl)
                 prepareAsync()
                 setOnPreparedListener { mp ->
-                    mp.start()
-                    _currentSong.value = song
-                    _isPlaying.value = true
-                    _duration.value = mp.duration
-                    updatePlaybackState(true, mp.currentPosition.toLong())
-                    currentBitmap?.let { showNotification(song, true, it) }
-                    startProgressTicker()
+                    if (mediaPlayer == this) {
+                        mp.start()
+                        _currentSong.value = song
+                        _isPlaying.value = true
+                        _duration.value = mp.duration
+                        updatePlaybackState(true, mp.currentPosition.toLong())
+                        currentBitmap?.let { showNotification(song, true, it) }
+                        startProgressTicker()
+                    }
                 }
                 setOnCompletionListener {
-                    if (!_isLooping.value) {
+                    if (mediaPlayer == this && !_isLooping.value) {
                         playNext()
                     }
                 }
                 setOnErrorListener { _, what, extra ->
-                    Log.e("MusicPlayerManager", "MediaPlayer error: what=$what, extra=$extra")
-                    _isPlaying.value = false
-                    _playbackError.value = "Playback error. Check your network connection."
-                    updatePlaybackState(false, 0)
-                    stopProgressTicker()
+                    // Only trigger error if this is still the active player instance
+                    if (mediaPlayer == this) {
+                        Log.e("MusicPlayerManager", "MediaPlayer error: what=$what, extra=$extra")
+                        _isPlaying.value = false
+                        _playbackError.value = "Playback error. Check your network connection."
+                        updatePlaybackState(false, 0)
+                        stopProgressTicker()
+                    }
                     true
                 }
             }
+            mediaPlayer = currentInstance
         } catch (e: Exception) {
             Log.e("MusicPlayerManager", "Exception playing song", e)
             _isPlaying.value = false

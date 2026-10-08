@@ -21,6 +21,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
@@ -32,6 +35,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
@@ -46,6 +50,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -89,6 +95,7 @@ sealed class Screen(val title: String, val icon: androidx.compose.ui.graphics.ve
     object Home : Screen("Home", Icons.Default.Home)
     object Search : Screen("Search", Icons.Default.Search)
     object History : Screen("History", Icons.Default.History)
+    object Offline : Screen("Offline", Icons.Default.Download)
 }
 
 fun formatDuration(ms: Int): String {
@@ -117,7 +124,7 @@ fun MainScreen(viewModel: MusicViewModel, openPlayerTrigger: MutableStateFlow<Bo
     val currentPosition by viewModel.currentPosition.collectAsState()
     val duration by viewModel.duration.collectAsState()
     val playbackError by viewModel.playbackError.collectAsState()
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
 
     LaunchedEffect(playbackError) {
         playbackError?.let { error ->
@@ -222,7 +229,7 @@ fun MainScreen(viewModel: MusicViewModel, openPlayerTrigger: MutableStateFlow<Bo
 
                     // Bottom Navigation Bar
                     NavigationBar {
-                        val screens = listOf(Screen.Home, Screen.Search, Screen.History)
+                        val screens = listOf(Screen.Home, Screen.Search, Screen.History, Screen.Offline)
                         screens.forEach { screen ->
                             NavigationBarItem(
                                 icon = { Icon(screen.icon, contentDescription = screen.title) },
@@ -237,9 +244,10 @@ fun MainScreen(viewModel: MusicViewModel, openPlayerTrigger: MutableStateFlow<Bo
         ) { innerPadding ->
             Box(modifier = Modifier.padding(innerPadding)) {
                 when (selectedScreen) {
-                    Screen.Home -> HomeScreen(viewModel)
-                    Screen.Search -> SearchScreen(viewModel)
-                    Screen.History -> HistoryScreen(viewModel)
+                    Screen.Home -> HomeScreen(viewModel, onSongSelected = { isMaxPlayerOpen = true })
+                    Screen.Search -> SearchScreen(viewModel, onSongSelected = { isMaxPlayerOpen = true })
+                    Screen.History -> HistoryScreen(viewModel, onSongSelected = { isMaxPlayerOpen = true })
+                    Screen.Offline -> OfflineScreen(viewModel, onSongSelected = { isMaxPlayerOpen = true })
                 }
             }
         }
@@ -276,8 +284,13 @@ fun MaxPlayerScreen(
     val liked by remember(currentSong) {
         derivedStateOf { currentSong?.let { viewModel.isLiked(it) } ?: false }
     }
+    val downloaded = remember(currentSong) {
+        derivedStateOf { currentSong?.let { viewModel.isDownloaded(it) } ?: false }
+    }
+
     var showInfoDialog by remember { mutableStateOf(false) }
     var showSleepTimerDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     // Spring heart pop animation & color transition
     val scale by animateFloatAsState(
@@ -390,6 +403,31 @@ fun MaxPlayerScreen(
                         fontWeight = FontWeight.Bold
                     )
                     Row {
+                        currentSong?.let { song ->
+                            IconButton(onClick = { viewModel.downloadSong(context, song) }) {
+                                Icon(
+                                    imageVector = Icons.Default.Download,
+                                    contentDescription = "Download",
+                                    tint = if (downloaded.value) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            IconButton(onClick = {
+                                val sendIntent = Intent().apply {
+                                    action = Intent.ACTION_SEND
+                                    putExtra(Intent.EXTRA_TEXT, "Check out this song: ${song.name} by ${song.getArtistsString()} - ${song.url}")
+                                    type = "text/plain"
+                                }
+                                val shareIntent = Intent.createChooser(sendIntent, null)
+                                context.startActivity(shareIntent)
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Share,
+                                    contentDescription = "Share",
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
                         IconButton(onClick = { showSleepTimerDialog = true }) {
                             Icon(
                                 imageVector = Icons.Default.Bedtime,
@@ -558,7 +596,7 @@ fun MaxPlayerScreen(
 }
 
 @Composable
-fun HomeScreen(viewModel: MusicViewModel) {
+fun HomeScreen(viewModel: MusicViewModel, onSongSelected: () -> Unit) {
     val recommendedSongs by viewModel.recommendedSongs.collectAsState()
     val likedSongs by viewModel.likedSongs.collectAsState()
     val historyEntries by viewModel.historyEntries.collectAsState()
@@ -626,43 +664,43 @@ fun HomeScreen(viewModel: MusicViewModel) {
 
                     if (recommendedSongs.isNotEmpty()) {
                         item {
-                            SongSection(title = "✨ Recommended For You", songs = recommendedSongs, viewModel = viewModel, queueSource = recommendedSongs)
+                            SongSection(title = "✨ Recommended For You", songs = recommendedSongs, viewModel = viewModel, queueSource = recommendedSongs, onSongSelected = onSongSelected)
                         }
                     }
 
                     if (historySongs.isNotEmpty()) {
                         item {
-                            SongSection(title = "Previously Listened", songs = historySongs, viewModel = viewModel, queueSource = historySongs)
+                            SongSection(title = "Previously Listened", songs = historySongs, viewModel = viewModel, queueSource = historySongs, onSongSelected = onSongSelected)
                         }
                     }
 
                     if (likedSongs.isNotEmpty()) {
                         item {
-                            SongSection(title = "❤️ Liked Songs", songs = likedSongs, viewModel = viewModel, queueSource = likedSongs)
+                            SongSection(title = "❤️ Liked Songs", songs = likedSongs, viewModel = viewModel, queueSource = likedSongs, onSongSelected = onSongSelected)
                         }
                     }
 
                     if (teluguSongs.isNotEmpty()) {
                         item {
-                            SongSection(title = "Telugu Hits", songs = teluguSongs, viewModel = viewModel, queueSource = teluguSongs)
+                            SongSection(title = "Telugu Hits", songs = teluguSongs, viewModel = viewModel, queueSource = teluguSongs, onSongSelected = onSongSelected)
                         }
                     }
 
                     if (hindiSongs.isNotEmpty()) {
                         item {
-                            SongSection(title = "Hindi Hits", songs = hindiSongs, viewModel = viewModel, queueSource = hindiSongs)
+                            SongSection(title = "Hindi Hits", songs = hindiSongs, viewModel = viewModel, queueSource = hindiSongs, onSongSelected = onSongSelected)
                         }
                     }
 
                     if (tamilSongs.isNotEmpty()) {
                         item {
-                            SongSection(title = "Tamil Melodies", songs = tamilSongs, viewModel = viewModel, queueSource = tamilSongs)
+                            SongSection(title = "Tamil Melodies", songs = tamilSongs, viewModel = viewModel, queueSource = tamilSongs, onSongSelected = onSongSelected)
                         }
                     }
 
                     if (punjabiSongs.isNotEmpty()) {
                         item {
-                            SongSection(title = "Punjabi Party", songs = punjabiSongs, viewModel = viewModel, queueSource = punjabiSongs)
+                            SongSection(title = "Punjabi Party", songs = punjabiSongs, viewModel = viewModel, queueSource = punjabiSongs, onSongSelected = onSongSelected)
                         }
                     }
                 }
@@ -672,7 +710,7 @@ fun HomeScreen(viewModel: MusicViewModel) {
 }
 
 @Composable
-fun HistoryScreen(viewModel: MusicViewModel) {
+fun HistoryScreen(viewModel: MusicViewModel, onSongSelected: () -> Unit) {
     val historyEntries by viewModel.historyEntries.collectAsState()
 
     Column(
@@ -680,17 +718,35 @@ fun HistoryScreen(viewModel: MusicViewModel) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text(
-            text = "⏳ Listening History",
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = "All songs you have listened to with date & time",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "⏳ Listening History",
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "All songs you have listened to",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (historyEntries.isNotEmpty()) {
+                IconButton(onClick = { viewModel.clearHistory() }) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteSweep,
+                        contentDescription = "Clear History",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -713,9 +769,118 @@ fun HistoryScreen(viewModel: MusicViewModel) {
                     val entry = historyEntries[index]
                     HistoryListItem(
                         entry = entry,
-                        onClick = { viewModel.playSong(entry.song, songsList, index) }
+                        onClick = {
+                            viewModel.playSong(entry.song, songsList, index)
+                            onSongSelected()
+                        }
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun OfflineScreen(viewModel: MusicViewModel, onSongSelected: () -> Unit) {
+    val downloadedSongs by viewModel.downloadedSongs.collectAsState()
+    val context = LocalContext.current
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "📥 Offline Music",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = "Songs downloaded to your device storage",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (downloadedSongs.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = "No offline songs downloaded yet.\nTap the download button on any song to save it offline!",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(downloadedSongs.size) { index ->
+                    val song = downloadedSongs[index]
+                    OfflineSongListItem(
+                        song = song,
+                        onClick = {
+                            viewModel.playSong(song, downloadedSongs, index, context)
+                            onSongSelected()
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun OfflineSongListItem(song: Song, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(8.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AsyncImage(
+                model = song.getBestImageUrl(),
+                contentDescription = song.name,
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(RoundedCornerShape(6.dp)),
+                contentScale = ContentScale.Crop
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = song.name ?: "Unknown",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "${song.getArtistsString()} • Offline",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            IconButton(onClick = onClick) {
+                Icon(
+                    imageVector = Icons.Default.PlayArrow,
+                    contentDescription = "Play",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
     }
@@ -776,7 +941,7 @@ fun HistoryListItem(entry: HistoryEntry, onClick: () -> Unit) {
 }
 
 @Composable
-fun SongSection(title: String, songs: List<Song>, viewModel: MusicViewModel, queueSource: List<Song> = songs) {
+fun SongSection(title: String, songs: List<Song>, viewModel: MusicViewModel, queueSource: List<Song> = songs, onSongSelected: () -> Unit) {
     Column {
         Text(
             text = title,
@@ -791,6 +956,7 @@ fun SongSection(title: String, songs: List<Song>, viewModel: MusicViewModel, que
                 val song = songs[index]
                 SongCard(song = song, onClick = {
                     viewModel.playSong(song, queueSource, index)
+                    onSongSelected()
                 })
             }
         }
@@ -838,13 +1004,14 @@ fun SongCard(song: Song, onClick: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SearchScreen(viewModel: MusicViewModel) {
+fun SearchScreen(viewModel: MusicViewModel, onSongSelected: () -> Unit) {
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val isLoading by viewModel.searchLoading.collectAsState()
     val errorMessage by viewModel.searchError.collectAsState()
 
     val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     LaunchedEffect(Unit) {
         delay(100.milliseconds)
@@ -864,9 +1031,33 @@ fun SearchScreen(viewModel: MusicViewModel) {
                 .focusRequester(focusRequester),
             placeholder = { Text("Search songs (e.g. nadaka, telugu)...") },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+            trailingIcon = {
+                if (searchQuery.isNotBlank()) {
+                    IconButton(onClick = { viewModel.updateSearchQuery("") }) {
+                        Icon(Icons.Default.Clear, contentDescription = "Clear search")
+                    }
+                }
+            },
             singleLine = true,
             shape = RoundedCornerShape(12.dp)
         )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Quick search suggestion chips
+        val suggestions = listOf("Telugu Hits", "Hindi Hits", "Tamil Melody", "Punjabi Party", "A.R. Rahman", "S.P. Balasubrahmanyam")
+        LazyRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            items(suggestions.size) { index ->
+                val suggestion = suggestions[index]
+                SuggestionChip(
+                    onClick = { viewModel.updateSearchQuery(suggestion) },
+                    label = { Text(suggestion) }
+                )
+            }
+        }
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -915,9 +1106,10 @@ fun SearchScreen(viewModel: MusicViewModel) {
             searchResults.isEmpty() -> {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text(
-                        text = "Type to search your favorite music",
+                        text = "Type or tap a suggestion to search music",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
@@ -930,7 +1122,11 @@ fun SearchScreen(viewModel: MusicViewModel) {
                         val song = searchResults[index]
                         SongListItem(
                             song = song,
-                            onClick = { viewModel.playSong(song, searchResults, index) }
+                            onClick = {
+                                keyboardController?.hide()
+                                viewModel.playSong(song, searchResults, index)
+                                onSongSelected()
+                            }
                         )
                     }
                 }
