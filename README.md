@@ -1,6 +1,6 @@
 # 🎵 Songify - Modern Android Music Streaming App
 
-Songify is a feature-rich, bug-free Android music streaming application built in **Kotlin** and **Jetpack Compose** using modern Android development best practices. It streams high-quality music from the JioSaavn API, features intelligent on-device recommendations, supports background playback with **HyperOS Island / Lock Screen / Notification** controls, and offers a gorgeous Material 3 UI.
+Songify is a feature-rich, bug-free Android music streaming application built in **Kotlin** and **Jetpack Compose** using modern Android development best practices. It streams high-quality music from the external  API, features intelligent on-device recommendations, supports background playback with **HyperOS Island / Lock Screen / Notification** controls, and offers a gorgeous Material 3 UI.
 
 ---
 
