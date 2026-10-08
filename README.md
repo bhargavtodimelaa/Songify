@@ -28,7 +28,7 @@ Songify is a feature-rich, bug-free Android music streaming application built in
 - **Listening History Tab**: Dedicated history screen showing all listened songs with timestamps.
 
 ### 5. 🚀 System Integration & HyperOS Island
-- **MediaSessionCompat & MediaStyle**: Integrated with system media frameworks to support continuous background playback controls on the lock screen, notification center, and **Xiaomi HyperOS Island (Capsule)**.
+- **MediaSessionCompat & MediaStyle**: Integrated with system media frameworks to support continuous background playback controls on the lock screen, notification center, and **Xiaomi HyperOS Island (Capsule)** and it is also made to work with all dynamic island implementations in all operating systems.
 - **Direct Notification Launch**: Tapping the music notification in your notification center brings the app to the foreground and automatically opens the Max Player View for the active track.
 
 ---
