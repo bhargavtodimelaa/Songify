@@ -47,3 +47,8 @@ Songify is a feature-rich, bug-free Android music streaming application built in
 1. Open the project in **Android Studio**.
 2. Sync project with Gradle files.
 3. Run the app on an Android emulator or physical device (Requires Android 6.0 / API 23 or higher).
+
+## ⚠️ Disclaimer
+Songify uses external API sources to fetch and stream music data. We are not affiliated with, endorsed by, or connected to any company, music label, artist, or streaming service whose content may be accessed through this application. All trademarks, song titles, artwork, and metadata belong to their respective owners. This application is provided strictly for educational and personal use only. The developers are not responsible for any damage, data loss, legal issues, or consequences caused by using this application. Please ensure you comply with your local laws and the terms of service of any third-party APIs before use. You are using this application entirely at your own risk.
+
+
